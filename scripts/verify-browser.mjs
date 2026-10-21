@@ -57,6 +57,8 @@ try {
     console.log('実ブラウザーで修正前の停止を再現しました。');
   } else {
     await imported.locator('#post-form').waitFor({state:'visible'});
+    // HTML表示後のセッション確認と取り込み処理の完了を待つ。
+    await imported.waitForFunction(expected=>document.getElementById('post-text')?.value===expected,post.text);
     assert.equal(await imported.locator('#post-text').inputValue(),post.text);
     assert.equal(await imported.locator('#post-url').inputValue(),post.url);
     assert.equal(await imported.locator('#post-links').inputValue(),post.links[0]);
