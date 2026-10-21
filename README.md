@@ -58,6 +58,8 @@ OpenAIには生成時に元投稿、取得したリンク本文、本人の設�
 
 APIは公式の[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)に沿って3案をJSONで取得します。初期モデルは[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)です。
 
+返信は利用者本人から元投稿者への発言として生成します。本文中の呼びかけを投稿者名と取り違えないように指示し、相手の名前が確実でない場合は宛名を省きます。生成指示の更新時はキャッシュの世代を変更し、古い案の自動再利用を避けます。保存済みの返信履歴は書き換えません。
+
 ## API費用の節約
 
 - GPT-6 Lunaを推論なし（`reasoning.effort: none`）で使用し、1回の出力は最大1,200トークンに制限します。3つの返信案は維持し、各案120文字以内を指示します。
