@@ -1,5 +1,6 @@
+import { LIMITS } from './analysis-config.js';
 export const STORAGE_KEY = 'x-post-suggest:v1';
-export const defaults = { ownHandle: '', perUser: 20, total: 500, context: 10, tone: '自然で親しみやすい', instruction: '' };
+export const defaults = { ownHandle: '', perUser: 20, total: 500, context: LIMITS.context, tone: '自然で親しみやすい', instruction: '' };
 export const handle = value => String(value || '').trim().replace(/^@/, '').toLowerCase();
 export function safeUrl(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : ''; } catch { return ''; }
@@ -17,7 +18,7 @@ export function normalizePost(raw) {
 }
 export function settingsFrom(raw = {}) {
   const n = (key, min, max) => Math.max(min, Math.min(max, Math.floor(Number(raw[key]) || defaults[key])));
-  return { ownHandle: handle(raw.ownHandle).slice(0, 15), perUser: n('perUser', 1, 100), total: n('total', 1, 1000), context: n('context', 1, 20), tone: String(raw.tone || defaults.tone).slice(0, 100), instruction: String(raw.instruction || '').slice(0, 2000) };
+  return { ownHandle: handle(raw.ownHandle).slice(0, 15), perUser: n('perUser', 1, 100), total: n('total', 1, 1000), context: n('context', 1, LIMITS.context), tone: String(raw.tone || defaults.tone).slice(0, 100), instruction: String(raw.instruction || '').slice(0, 2000) };
 }
 export function prune(records, settings) {
   const counts = new Map();
@@ -26,7 +27,7 @@ export function prune(records, settings) {
   }).slice(0, settings.total);
 }
 export function contextFor(records, post, settings) {
-  return records.filter(r => handle(r.post.author) === post.author && r.post.id !== post.id && r.status === 'sent' && r.reply.trim()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, settings.context).map(r => ({ post: r.post.text.slice(0, 6000), reply: r.reply.slice(0, 2000), date: r.updatedAt }));
+  return records.filter(r => handle(r.post.author) === post.author && r.post.id !== post.id && r.status === 'sent' && r.reply.trim()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, Math.min(settings.context,LIMITS.context)).map(r => ({ post: r.post.text.slice(0, LIMITS.contextPost), reply: r.reply.slice(0, LIMITS.contextReply) }));
 }
 export function loadState(storage) {
   const raw = storage.getItem(STORAGE_KEY);

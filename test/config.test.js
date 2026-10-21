@@ -14,7 +14,7 @@ test('起動後に追加・更新した.env.localを次の読み込みで反映�
   await writeFile(file,'\uFEFFOPENAI_API_KEY="dummy-first"\nOPENAI_MODEL=test-model\nPORT=4399');
   assert.deepEqual(await read(),{apiKey:'dummy-first',model:'test-model',port:4399,accessToken:'',production:false,origins:[]});
   await writeFile(file,'OPENAI_API_KEY=dummy-second');
-  assert.deepEqual(await read(),{apiKey:'dummy-second',model:'gpt-5-mini',port:4317,accessToken:'',production:false,origins:[]});
+  assert.deepEqual(await read(),{apiKey:'dummy-second',model:'gpt-6-luna',port:4317,accessToken:'',production:false,origins:[]});
   await writeFile(file,'OPENAI_API_KEY=');
   assert.equal((await read()).apiKey,'');
 });

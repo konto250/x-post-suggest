@@ -6,10 +6,11 @@ import { readConfig } from './config.js';
 import { analyze } from './llm.js';
 import { validAccessToken, matchPassword, issueSession, verifySession, sessionFromRequest, sessionCookie, requestOrigin, validMutationOrigin, createLoginLimiter } from './auth.js';
 import { securityHeaders } from './headers.js';
+import { ANALYSIS_VERSION } from '../src/analysis-config.js';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const publicFiles = new Map([['/auth/login.js','auth/login.js'],['/auth/login.css','auth/login.css']]);
-const protectedFiles = new Map([['/','index.html'],...['main.js','core.js','bookmarklet.js','session.js','style.css'].map(f=>['/src/'+f,'src/'+f])]);
+const protectedFiles = new Map([['/','index.html'],...['main.js','core.js','bookmarklet.js','session.js','style.css','analysis-cache.js','analysis-config.js'].map(f=>['/src/'+f,'src/'+f])]);
 async function readJson(req,limit) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw Object.assign(new Error('JSON形式で送信してください。'),{status:415});
   if (req.body !== undefined) {
@@ -54,7 +55,7 @@ export function createHandler({configReader=readConfig,generate=analyze,limiter=
       if(pathname==='/api/auth/session' && req.method==='GET') return json(authenticated?200:401,{authenticated});
       if(get && (pathname==='/login' || (pathname==='/' && !authenticated))) return await file('auth/login.html');
       if(!authenticated) return json(401,{error:'ログインが必要です。'});
-      if(pathname==='/api/config' && req.method==='GET') return json(200,{hasKey:!!config.apiKey,model:config.model});
+      if(pathname==='/api/config' && req.method==='GET') return json(200,{hasKey:!!config.apiKey,model:config.model,analysisVersion:ANALYSIS_VERSION});
       if(pathname==='/api/analyze' && req.method==='POST') {
         if(!validMutationOrigin(req,origin)) return json(403,{error:'アプリの画面から実行してください。'});
         if(!config.apiKey) return json(503,{error:'サーバーのOPENAI_API_KEYを設定してください。'});

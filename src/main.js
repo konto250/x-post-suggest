@@ -1,6 +1,7 @@
 import { defaults, normalizePost, settingsFrom, prune, contextFor, loadState, saveState, STORAGE_KEY, safeUrl } from './core.js';
 import { bookmarklet } from './bookmarklet.js';
 import { apiFetch, checkSession, logout } from './session.js';
+import { analysisKey, cachedAnalysis } from './analysis-cache.js';
 if (!await checkSession()) throw new Error('ログインが必要です。');
 const $ = id => document.getElementById(id);
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
@@ -38,7 +39,7 @@ function renderContext() {
   } catch { $('context-summary').textContent = 'ポストURLと本文を入力すると、相手への返信履歴が表示されます。'; }
 }
 const emptySuggestions = $('suggestions').cloneNode(true);
-function clearResult() { result = null; $('suggestions').replaceChildren(...emptySuggestions.cloneNode(true).childNodes); }
+function clearResult() { result = null; $('regenerate').hidden=true; $('suggestions').replaceChildren(...emptySuggestions.cloneNode(true).childNodes); }
 for (const id of ['post-url','post-text','post-links']) $(id).addEventListener('input',() => { clearResult(); renderContext(); });
 function fillPost(post, reply = '', analysis = null) {
   $('post-url').value = post.url; $('post-text').value = post.text; $('post-links').value = post.links.join('\n'); $('reply').value = reply; updateChars(); result = analysis; analysis ? renderResult(analysis) : clearResult(); renderContext(); go('compose');
@@ -63,6 +64,7 @@ function importHash() {
   } catch(e) { history.replaceState(null,'',location.pathname); notice('取り込み失敗：'+e.message,true); }
 }
 function renderResult(data) {
+  $('regenerate').hidden=false;
   const container = $('suggestions'); container.replaceChildren(el('p',data.summary,'summary'));
   if (data.caution) container.append(el('p',data.caution,'warning'));
   data.suggestions.forEach(s => {
@@ -81,21 +83,32 @@ function renderResult(data) {
     }
   }
   container.append(el('p',`同じ相手への投稿済み返信 ${data.contextCount || 0}件を参照しました。`,'fine-print'));
+  if(data.inputNotice)container.append(el('p',data.inputNotice,'fine-print'));
+  if(data.generatedAt)container.append(el('p',`生成日時：${new Date(data.generatedAt).toLocaleString('ja-JP')}。リンク先はこの時点の取得内容です。`,'fine-print'));
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['post-url','post-text','post-links','tone','generate','new-post','save-draft','open-x','mark-sent']) $(id).disabled = value;
+  for (const id of ['post-url','post-text','post-links','tone','generate','regenerate','new-post','save-draft','open-x','mark-sent']) $(id).disabled = value;
   $('generate').textContent = value ? 'リンク先を確認して返信案を生成中…' : '✧ 返信案をつくる';
   $('suggestions').setAttribute('aria-busy',String(value));
 }
 $('post-form').addEventListener('submit',async e => {
   e.preventDefault(); if (busy) return;
   try {
+    const force=e.submitter?.id==='regenerate';
     const post = currentPost(); state = loadState(localStorage); const settings = {...state.settings,tone:$('tone').value};
-    setBusy(true); clearResult(); notice('リンク先と過去の返信を確認しています。しばらくお待ちください。');
-    const response = await apiFetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({post,settings,context:contextFor(state.records,post,settings)}),signal:AbortSignal.timeout(150000)});
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || '生成に失敗しました。');
-    result = data; renderResult(data); notice('3つの返信案を作成しました。選んだ案を編集して保存できます。');
+    setBusy(true); notice(force ? '新しい返信案を生成します（API利用料が発生します）。' : '保存済みの返信案を確認しています。');
+    const configResponse=await apiFetch('/api/config');
+    const config=await configResponse.json();if(!configResponse.ok)throw new Error(config.error || '設定を確認できません。');
+    const input={post,settings:{ownHandle:settings.ownHandle,tone:settings.tone,instruction:settings.instruction,context:settings.context},context:contextFor(state.records,post,settings)};
+    const key=await analysisKey(input,config);
+    const cached=await navigator.locks.request('x-post-suggest:generate:'+key,()=>cachedAnalysis({storage:localStorage,key,force,generate:async()=>{
+      notice('リンク先と過去の返信を確認し、返信案を生成しています。');
+      const response=await apiFetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal:AbortSignal.timeout(150000)});
+      const data=await response.json();if(!response.ok)throw new Error(data.error || '生成に失敗しました。');return data;
+    }}));
+    result=cached.data;renderResult(cached.data);
+    notice(cached.reused ? '保存済みの返信案を再利用しました。追加のOpenAI API利用料はかかりません。' : cached.saved ? '3つの返信案を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。' : '返信案を作成しましたが、ブラウザーに再利用用の保存ができませんでした。再実行にはAPI利用料がかかります。');
   } catch(e) { notice(e.name === 'TimeoutError' ? '生成がタイムアウトしました。再実行してください。' : e.message,true); }
   finally {setBusy(false);}
 });

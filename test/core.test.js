@@ -38,6 +38,7 @@ test('生成要求にリンク本文と文脈を渡し、API保存を無効に�
     return {ok:true,json:async () => ({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({summary:'要約',caution:'',suggestions:[{label:'共感',text:'案1'},{label:'質問',text:'案2'},{label:'短め',text:'案3'}]})}]}]})};
   },async url => ({url,status:'fetched',text:'取得した本文',note:'テスト'}));
   assert.equal(payload.store,false);assert.equal(payload.text.format.type,'json_schema');
+  assert.equal(payload.max_output_tokens,1200);assert.equal(payload.reasoning.effort,'none');assert.equal(payload.model,'gpt-6-luna');
   const input=JSON.parse(payload.input);assert.equal(input.context[0].reply,'過去の返信');assert.equal(input.links[0].text,'取得した本文');assert.equal(result.suggestions.length,3);
 });
 test('APIの認証エラーと不正応答を成功として扱わない',async () => {
