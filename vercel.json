@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": { "api/handler.js": { "includeFiles": "{index.html,auth/**,src/**,server/**}", "excludeFiles": "{.env*,.vercel/**,test/**,scripts/**,*.log}", "maxDuration": 180 } },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/handler" }],
+  "headers": [{"source":"/(.*)","headers":[{"key":"Cache-Control","value":"private, no-store, max-age=0, must-revalidate"},{"key":"CDN-Cache-Control","value":"no-store"},{"key":"Vercel-CDN-Cache-Control","value":"no-store"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Referrer-Policy","value":"no-referrer"}]}]
+}

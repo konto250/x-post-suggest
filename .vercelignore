@@ -1,0 +1,5 @@
+.env*
+.git/
+*.log
+test/
+scripts/verify-live.mjs

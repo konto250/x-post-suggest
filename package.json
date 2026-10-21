@@ -1,0 +1,9 @@
+{
+  "name": "x-post-suggest",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node server/index.js", "start": "node server/index.js", "test": "node --test", "build": "node scripts/build.mjs", "setup:access": "node scripts/setup-access.mjs" },
+  "dependencies": { "linkedom": "^0.18.12" },
+  "engines": { "node": "22.x" }
+}
