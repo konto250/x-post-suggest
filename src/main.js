@@ -158,9 +158,17 @@ $('settings-form').addEventListener('submit',async e => {
   const settings = settingsFrom({ownHandle:$('own-handle').value,instruction:$('instruction').value,perUser:$('per-user').value,total:$('total').value,context:$('context-limit').value,tone:$('tone').value});
   try { await commit(latest => { if (prune(latest.records,settings).length < latest.records.length && !confirm('上限の変更により古い履歴が削除されます。設定を保存しますか？')) throw new Error('設定の変更を取り消しました。'); latest.settings=settings; }); fillSettings();renderContext();notice('設定を保存しました。'); } catch(e) {notice(e.message,true);}
 });
-$('export').addEventListener('click',() => {
-  try {const raw = localStorage.getItem(STORAGE_KEY) || JSON.stringify({version:1,...state}); const url = URL.createObjectURL(new Blob([raw],{type:'application/json'})); const a = el('a'); a.href=url; a.download=`x-replies-${new Date().toISOString().slice(0,10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); } catch(e) {notice(e.message,true);}
-});
+function downloadBackup() {
+  try {
+    const raw=localStorage.getItem(STORAGE_KEY) || JSON.stringify({version:1,...state});
+    const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
+    const a=el('a');a.href=url;a.download=`x-replies-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    notice(`「${a.download}」のダウンロードを開始しました。通常は「ダウンロード」フォルダーに保存されます。見つからない場合はブラウザーのダウンロード一覧を確認してください。`);
+  } catch(e) {notice('バックアップをダウンロードできません：'+e.message,true);}
+}
+$('export').addEventListener('click',downloadBackup);
+$('export-settings').addEventListener('click',downloadBackup);
 $('restore').addEventListener('change',async e => {
   try {
     const file = e.target.files[0]; if (!file) return; if(file.size > 10000000) throw new Error('ファイルが大きすぎます（最大10MB）。');

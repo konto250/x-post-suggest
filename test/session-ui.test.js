@@ -23,9 +23,33 @@ test('別タブのログアウト通知と認証切れは画面を破棄する',
     assert.equal(closed,true);assert.equal(navigated,'/login');
   }
 });
-test('外部遷移後のセッション確認で再入力を避け、取り込みフラグメントを保持する',async()=>{
-  const elements={'login-form':{addEventListener(){},hidden:true},message:{},password:{}};let navigated;
-  const context=vm.createContext({document:{getElementById:id=>elements[id]},window:{addEventListener(){}},location:{search:'?from=x',hash:'#import=%7Bpayload%7D',replace:url=>navigated=url},fetch:async()=>({ok:true})});
-  vm.runInContext(loginSource,context);await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(navigated,'/?from=x#import=%7Bpayload%7D');assert.equal(elements['login-form'].hidden,true);
+function loginPage(pathname, authenticated) {
+  const handlers={},requests=[],navigations=[];
+  const elements={'login-form':{addEventListener:(name,fn)=>handlers[name]=fn,hidden:true,querySelector:()=>({disabled:false})},message:{},password:{value:'',focus(){}}};
+  const location={pathname,search:'?from=x',hash:'#import=%7Bpayload%7D',replace:url=>{
+    const target=new URL(url,'https://app.example');
+    navigations.push({url,loadsDocument:target.pathname!==location.pathname || target.search!==location.search || !target.hash});
+  }};
+  const context=vm.createContext({document:{getElementById:id=>elements[id]},window:{addEventListener(){}},location,
+    history:{replaceState:(_state,_title,url)=>{const target=new URL(url,'https://app.example');location.pathname=target.pathname;location.search=target.search;location.hash=target.hash;}},
+    fetch:async(url,options)=>{requests.push({url,options});return {ok:url.endsWith('/login')||authenticated,status:authenticated?200:401,json:async()=>({authenticated:true})};}});
+  vm.runInContext(loginSource,context);
+  return {elements,handlers,requests,navigations};
+}
+test('外部遷移後は同一フラグメント内移動を避け、再入力なしでアプリを読み込む',async()=>{
+  for(const pathname of ['/','/login']) {
+    const page=loginPage(pathname,true);await new Promise(resolve=>setImmediate(resolve));
+    assert.deepEqual(page.navigations,[{url:'/?from=x#import=%7Bpayload%7D',loadsDocument:true}]);
+    assert.equal(page.elements['login-form'].hidden,true);
+    assert.deepEqual(page.requests.map(r=>r.url),['/api/auth/session']);
+    assert.equal(page.requests[0].options.credentials,'same-origin');
+  }
+});
+test('未ログインからパスワード認証した場合も本文とクエリーを保ってアプリを読み込む',async()=>{
+  const page=loginPage('/',false);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(page.elements['login-form'].hidden,false);assert.equal(page.navigations.length,0);
+  page.elements.password.value='テスト専用パスワード';
+  await page.handlers.submit({preventDefault(){}});
+  assert.deepEqual(page.navigations,[{url:'/?from=x#import=%7Bpayload%7D',loadsDocument:true}]);
+  assert.equal(page.elements.password.value,'');
 });

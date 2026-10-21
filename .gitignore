@@ -3,6 +3,7 @@ node_modules/
 !.env.example
 .vercel/
 dist/
+.test-artifacts/
 *.log
 
 .vercel
