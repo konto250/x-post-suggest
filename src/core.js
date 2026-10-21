@@ -1,6 +1,6 @@
 import { LIMITS } from './analysis-config.js';
 export const STORAGE_KEY = 'x-post-suggest:v1';
-export const defaults = { ownHandle: '', perUser: 20, total: 500, context: LIMITS.context, tone: '自然で親しみやすい', instruction: '' };
+export const defaults = { ownHandle: '', perUser: 20, total: 500, context: LIMITS.context, tone: '短くカジュアル', instruction: '' };
 export const handle = value => String(value || '').trim().replace(/^@/, '').toLowerCase();
 export function safeUrl(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : ''; } catch { return ''; }

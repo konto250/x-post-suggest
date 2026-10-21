@@ -47,7 +47,7 @@ function fillPost(post, reply = '', analysis = null) {
 $('new-post').addEventListener('click',() => {
   if (busy) return;
   if ($('reply').value && !confirm('現在の編集内容を閉じて、新しい返信を作成しますか？ 保存済みの履歴は残ります。')) return;
-  $('post-form').reset(); $('reply').value = ''; $('tone').value = state.settings.tone; clearResult(); renderContext(); updateChars();
+  $('post-form').reset(); $('reply').value = ''; $('tone').value = defaults.tone; clearResult(); renderContext(); updateChars();
 });
 $('bookmark').href = bookmarklet(location.origin);
 $('bookmark').addEventListener('click', e => { e.preventDefault(); notice('このリンクをブックマークバーへドラッグし、Xのポスト詳細ページで起動してください。'); });
@@ -179,7 +179,7 @@ $('restore').addEventListener('change',async e => {
 });
 window.addEventListener('storage',e => {if(e.key===STORAGE_KEY){try{state=loadState(localStorage);storageBroken=false;updateCounts();renderHistory();renderContext();}catch(error){storageBroken=true;notice(error.message,true);}}});
 window.addEventListener('hashchange',importHash);
-fillSettings(); renderHistory(); importHash();
+fillSettings(); $('tone').value=defaults.tone; renderHistory(); importHash();
 async function refreshApiConfig() {
   try {
     const response = await apiFetch('/api/config');
