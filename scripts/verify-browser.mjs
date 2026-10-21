@@ -66,6 +66,13 @@ try {
     await imported.locator('#reply').fill('検証用の下書きです。');
     await imported.locator('#save-draft').click();
     await imported.getByText('下書きを保存しました。',{exact:true}).waitFor();
+    await imported.locator('#mark-sent').click();
+    await imported.getByText('投稿済みとして記録しました。次回、この相手への返信に活用します。',{exact:true}).waitFor();
+    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*投稿済み返信0件/);
+    assert.match(await imported.locator('#context-list').textContent(),/このポストへの保存済み返信（投稿済み）.*検証用の下書きです。.*参照対象には含めません/s);
+    await imported.locator('#post-url').fill('https://x.com/test_user/status/124');
+    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*投稿済み返信1件/);
+    await imported.locator('#post-url').fill(post.url);
     await imported.locator('[data-view="settings"]').click();
     const downloadPromise=imported.waitForEvent('download');
     await imported.locator('#export-settings').click();
@@ -81,7 +88,7 @@ try {
     await Promise.all([imported.locator('#login-form').waitFor({state:'visible'}),other.locator('#login-form').waitFor({state:'visible'})]);
     const stored=await imported.evaluate(()=>localStorage.getItem('x-post-suggest:v1'));
     assert.equal(JSON.parse(stored).records.length,1);
-    console.log('実ブラウザー確認成功: 外部遷移後の再入力なし・本文/URL保持・JSONダウンロード・別タブログアウト・履歴保持');
+    console.log('実ブラウザー確認成功: 外部遷移後の再入力なし・本文/URL保持・同一ポストの履歴表示と別ポストの参照・JSONダウンロード・別タブログアウト・履歴保持');
   }
   await Promise.all(responses);
   assert.equal(initialLoginPage,true,'外部遷移の初回はStrict Cookieなしでログイン画面を受信');

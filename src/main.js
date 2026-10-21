@@ -33,8 +33,18 @@ function renderContext() {
   $('context-list').replaceChildren(); $('post-meta').replaceChildren();
   try {
     const post = currentPost(); const context = contextFor(state.records,post,state.settings);
-    $('context-summary').textContent = `@${post.author} への投稿済み返信 ${context.length}件を次の生成に使用します。`;
+    const saved=state.records.filter(r=>r.post.author===post.author);
+    const current=saved.filter(r=>r.post.id===post.id);
+    const drafts=saved.filter(r=>r.post.id!==post.id && r.status==='draft');
+    $('context-summary').textContent = `@${post.author} との保存履歴は${saved.length}件。次の生成には、別ポストへの投稿済み返信${context.length}件を使用します。`;
     [ '@'+post.author, ...post.hashtags, `${post.links.length}件のリンク` ].forEach(t => $('post-meta').append(el('span',t,'tag')));
+    for(const r of current) {
+      const item=el('div',undefined,'context-item');
+      item.append(el('strong',`このポストへの保存済み返信（${r.status==='sent'?'投稿済み':'下書き'}）`),el('br'),el('span',r.reply),el('p','現在開いている同じポストへの返信なので、次の生成の参照対象には含めません。','fine-print'));
+      $('context-list').append(item);
+    }
+    if(drafts.length)$('context-list').append(el('p',`別ポストへの下書き${drafts.length}件は参照対象外です。Xで投稿した後に「投稿済みとして記録」すると、次回の文脈に使われます。`,'fine-print'));
+    if(context.length)$('context-list').append(el('p','次の生成に使う、別ポストでのやりとり','muted'));
     context.slice(0,3).forEach(c => { const item = el('div',undefined,'context-item'); item.append(el('span',c.post.slice(0,110)),el('br'),el('strong','↳ '+c.reply.slice(0,180))); $('context-list').append(item); });
   } catch { $('context-summary').textContent = 'ポストURLと本文を入力すると、相手への返信履歴が表示されます。'; }
 }
