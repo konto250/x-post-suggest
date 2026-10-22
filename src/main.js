@@ -195,7 +195,7 @@ function renderHistory() {
       if(r.kind==='air-reply'){fillPost(r.post);if(r.analysis)renderAirResult(r.analysis);$('air-panel').hidden=false;$('air-text').value=r.reply;}
       else fillPost(r.post,r.reply,r.analysis);
     });
-    const remove = el('button','削除','text-button'); remove.addEventListener('click',async () => { if (!confirm('この元投稿と返信の記録を削除しますか？')) return; try {await commit(latest => {latest.records = latest.records.filter(x => x.id !== r.id);}); renderContext(); notice('記録を削除しました。');} catch(e) {notice(e.message,true);} }); buttons.append(edit,remove); card.append(heading,pair,buttons); container.append(card);
+    const remove = el('button','削除','text-button'); remove.addEventListener('click',async () => { try {await commit(latest => {latest.records = latest.records.filter(x => x.id !== r.id);}); renderContext(); notice('記録を削除しました。');} catch(e) {notice(e.message,true);} }); buttons.append(edit,remove); card.append(heading,pair,buttons); container.append(card);
   }
 }
 ['search','status-filter','user-filter'].forEach(id => $(id).addEventListener('input',renderHistory));
