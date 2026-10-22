@@ -1,11 +1,12 @@
-import { defaults, normalizePost, settingsFrom, prune, contextFor, loadState, saveState, STORAGE_KEY, safeUrl } from './core.js';
+import { defaults, normalizePost, settingsFrom, prune, contextFor, loadState, saveState, STORAGE_KEY, safeUrl, recordId } from './core.js';
 import { bookmarklet } from './bookmarklet.js';
 import { apiFetch, checkSession, logout } from './session.js';
 import { analysisKey, cachedAnalysis } from './analysis-cache.js';
 if (!await checkSession()) throw new Error('ログインが必要です。');
 const $ = id => document.getElementById(id);
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
-let state = {settings:{...defaults}, records:[]}, result = null, busy = false, storageBroken = false;
+let state = {settings:{...defaults}, records:[]}, result = null, airResult = null, busy = false, storageBroken = false;
+const kindLabel=record=>record.kind==='air-reply'?'エアリプ':'返信';
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; $('notice').hidden = false; }
 try { state = loadState(localStorage); } catch(e) { storageBroken = true; notice(`保存データを読み込めません。既存データを保護するため保存を停止しています。${e.message}`,true); }
 async function commit(change) {
@@ -36,20 +37,20 @@ function renderContext() {
     const saved=state.records.filter(r=>r.post.author===post.author);
     const current=saved.filter(r=>r.post.id===post.id);
     const drafts=saved.filter(r=>r.post.id!==post.id && r.status==='draft');
-    $('context-summary').textContent = `@${post.author} との保存履歴は${saved.length}件。次の生成には、別ポストへの投稿済み返信${context.length}件を使用します。`;
+    $('context-summary').textContent = `@${post.author} との保存履歴は${saved.length}件。次の生成には、別ポストに関する返信済みの記録${context.length}件（返信・エアリプ）を使用します。`;
     [ '@'+post.author, ...post.hashtags, `${post.links.length}件のリンク` ].forEach(t => $('post-meta').append(el('span',t,'tag')));
     for(const r of current) {
       const item=el('div',undefined,'context-item');
-      item.append(el('strong',`このポストへの保存済み返信（${r.status==='sent'?'投稿済み':'下書き'}）`),el('br'),el('span',r.reply),el('p','現在開いている同じポストへの返信なので、次の生成の参照対象には含めません。','fine-print'));
+      item.append(el('strong',`このポストへの保存済み${kindLabel(r)}（${r.status==='sent'?'返信済み':'下書き'}）`),el('br'),el('span',r.reply),el('p','現在開いている同じポストの記録なので、次の生成の参照対象には含めません。','fine-print'));
       $('context-list').append(item);
     }
-    if(drafts.length)$('context-list').append(el('p',`別ポストへの下書き${drafts.length}件は参照対象外です。Xで投稿した後に「投稿済みとして記録」すると、次回の文脈に使われます。`,'fine-print'));
+    if(drafts.length)$('context-list').append(el('p',`別ポストへの下書き${drafts.length}件は参照対象外です。「Xで返信する」または「Xでエアリプする」を押すと返信済みになり、次回の文脈に使われます。`,'fine-print'));
     if(context.length)$('context-list').append(el('p','次の生成に使う、別ポストでのやりとり','muted'));
-    context.slice(0,3).forEach(c => { const item = el('div',undefined,'context-item'); item.append(el('span',c.post.slice(0,110)),el('br'),el('strong','↳ '+c.reply.slice(0,180))); $('context-list').append(item); });
+    context.slice(0,3).forEach(c => { const item = el('div',undefined,'context-item'); item.append(el('span',c.post.slice(0,110)),el('br'),el('strong',`↳ ${kindLabel(c)}：${c.reply.slice(0,180)}`)); $('context-list').append(item); });
   } catch { $('context-summary').textContent = 'ポストURLと本文を入力すると、相手への返信履歴が表示されます。'; }
 }
 const emptySuggestions = $('suggestions').cloneNode(true);
-function clearAir() { $('air-panel').hidden=true; $('air-suggestions').replaceChildren(); $('air-text').value=''; }
+function clearAir() { airResult=null; $('air-panel').hidden=true; $('air-suggestions').replaceChildren(); $('air-text').value=''; }
 function clearResult() { result = null; $('regenerate').hidden=true; $('suggestions').replaceChildren(...emptySuggestions.cloneNode(true).childNodes); clearAir(); }
 for (const id of ['post-url','post-text','post-links']) $(id).addEventListener('input',() => { clearResult(); renderContext(); });
 function fillPost(post, reply = '', analysis = null) {
@@ -94,11 +95,12 @@ function renderResult(data) {
       container.append(box);
     }
   }
-  container.append(el('p',`同じ相手への投稿済み返信 ${data.contextCount || 0}件を参照しました。`,'fine-print'));
+  container.append(el('p',`同じ相手のポストに関する返信済みの記録 ${data.contextCount || 0}件（返信・エアリプ）を参照しました。`,'fine-print'));
   if(data.inputNotice)container.append(el('p',data.inputNotice,'fine-print'));
   if(data.generatedAt)container.append(el('p',`生成日時：${new Date(data.generatedAt).toLocaleString('ja-JP')}。リンク先はこの時点の取得内容です。`,'fine-print'));
 }
 function renderAirResult(data) {
+  airResult=data;
   const container=$('air-suggestions');container.replaceChildren(el('p',data.summary,'summary'));
   if(data.caution)container.append(el('p',data.caution,'warning'));
   for(const suggestion of data.suggestions) {
@@ -107,13 +109,14 @@ function renderAirResult(data) {
     card.append(el('h3',suggestion.label),el('p',suggestion.text),use);container.append(card);
   }
   container.append(el('p',data.inputNotice,'fine-print'));
+  container.append(el('p',`返信済みの記録 ${data.contextCount || 0}件（返信・エアリプ）を参照しました。`,'fine-print'));
   if(data.generatedAt)container.append(el('p',`生成日時：${new Date(data.generatedAt).toLocaleString('ja-JP')}`,'fine-print'));
   $('air-text').value=data.suggestions[0].text;$('air-panel').hidden=false;
   $('air-panel').scrollIntoView({block:'nearest'});
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ['post-url','post-text','post-links','tone','generate','regenerate','self-debate','regenerate-air','air-text','open-air','copy-air','new-post','save-draft','open-x','mark-sent']) $(id).disabled = value;
+  for (const id of ['post-url','post-text','post-links','tone','generate','regenerate','self-debate','regenerate-air','air-text','open-air','copy-air','save-air','new-post','save-draft','open-x']) $(id).disabled = value;
   $('generate').textContent = value ? 'リンク先を確認して返信案を生成中…' : '✧ 返信案をつくる';
   $('suggestions').setAttribute('aria-busy',String(value));
 }
@@ -128,7 +131,7 @@ $('post-form').addEventListener('submit',async e => {
     setBusy(true); notice(force ? `新しい${label}を生成します（API利用料が発生します）。` : `保存済みの${label}を確認しています。`);
     const configResponse=await apiFetch('/api/config');
     const config=await configResponse.json();if(!configResponse.ok)throw new Error(config.error || '設定を確認できません。');
-    const input={mode,post,settings:{ownHandle:settings.ownHandle,tone:mode==='air-reply'?'短くカジュアル':settings.tone,instruction:settings.instruction,context:settings.context},context:mode==='air-reply'?[]:contextFor(state.records,post,settings)};
+    const input={mode,post,settings:{ownHandle:settings.ownHandle,tone:mode==='air-reply'?'短くカジュアル':settings.tone,instruction:settings.instruction,context:settings.context},context:contextFor(state.records,post,settings)};
     const key=await analysisKey(input,config);
     const cached=await navigator.locks.request('x-post-suggest:generate:'+key,()=>cachedAnalysis({storage:localStorage,key,force,generate:async()=>{
       notice(mode==='air-reply'?'元ポストとリンク先を確認し、冷笑系エアリプ案を生成しています。':'リンク先と過去の返信を確認し、返信案を生成しています。');
@@ -144,29 +147,34 @@ function updateChars() { $('char-count').textContent = `${[...$('reply').value].
 $('reply').addEventListener('input',updateChars);
 $('copy-reply').addEventListener('click',() => { if ($('reply').value.trim()) copy($('reply').value,'返信をコピーしました。'); else notice('返信を入力してください。',true); });
 $('copy-air').addEventListener('click',()=>{if($('air-text').value.trim())copy($('air-text').value,'エアリプをコピーしました。');else notice('投稿するコメントを入力してください。',true);});
-$('open-air').addEventListener('click',()=>{
+$('save-air').addEventListener('click',()=>saveReply('draft','air-reply').catch(e=>notice(e.message,true)));
+$('open-air').addEventListener('click',async()=>{
   if(busy)return;
   const text=$('air-text').value.trim();if(!text){notice('投稿するコメントを入力してください。',true);return;}
-  window.open('https://x.com/intent/tweet?'+new URLSearchParams({text}),'_blank','noopener,noreferrer');
-  notice('Xの投稿画面を開きました。内容を確認して投稿してください。');
+  const tab=window.open('about:blank','_blank');if(tab)tab.opener=null;
+  try {
+    await saveReply('sent','air-reply');
+    if(tab){tab.location.href='https://x.com/intent/tweet?'+new URLSearchParams({text});notice('エアリプを返信済みとして記録してXを開きました。投稿はXで確定してください。');}
+    else notice('エアリプを返信済みとして記録しました。ポップアップを許可するか、コメントをコピーしてXに貼り付けてください。',true);
+  }catch(e){tab?.close();notice(e.message,true);}
 });
-async function saveReply(status) {
-  const post = currentPost(); const reply = $('reply').value.trim();
+async function saveReply(status,kind='reply') {
+  const post = currentPost(); const reply = $(kind==='air-reply'?'air-text':'reply').value.trim();
   if (!reply) throw new Error('保存する返信を入力してください。');
-  const analysis = result ? {...result,links:result.links?.map(({text, ...link}) => link)} : null;
-  const record = {id:post.id,post,reply,status,analysis,updatedAt:new Date().toISOString()};
+  const selectedResult=kind==='air-reply'?airResult:result;
+  const analysis = selectedResult ? {...selectedResult,links:selectedResult.links?.map(({text, ...link}) => link)} : null;
+  const record = {id:recordId(post,kind),kind,post,reply,status,analysis,updatedAt:new Date().toISOString()};
   await commit(latest => {latest.records = [record,...latest.records.filter(r => r.id !== record.id)];});
-  renderContext(); notice(status === 'sent' ? '投稿済みとして記録しました。次回、この相手への返信に活用します。' : '下書きを保存しました。'); return post;
+  renderContext(); notice(kind==='air-reply' ? (status==='sent'?'エアリプを返信済みとして記録しました。次回の生成に活用します。':'エアリプの下書きを保存しました。') : (status === 'sent' ? '返信済みとして記録しました。次回、この相手への返信に活用します。' : '下書きを保存しました。')); return post;
 }
 $('save-draft').addEventListener('click',() => saveReply('draft').catch(e => notice(e.message,true)));
-$('mark-sent').addEventListener('click',() => saveReply('sent').catch(e => notice(e.message,true)));
 $('open-x').addEventListener('click',async () => {
   try {
     const post = currentPost(); if (!$('reply').value.trim()) throw new Error('返信を入力してください。');
     const tab = window.open('about:blank','_blank'); if (tab) tab.opener = null;
-    try { await saveReply('draft'); } catch(e) {tab?.close(); throw e;}
+    try { await saveReply('sent'); } catch(e) {tab?.close(); throw e;}
     const url = `https://x.com/intent/tweet?in_reply_to=${encodeURIComponent(post.id)}&text=${encodeURIComponent($('reply').value)}`;
-    if (tab) tab.location.href = url; else notice('下書きを保存しました。ポップアップを許可するか、返信をコピーしてXに貼り付けてください。',true);
+    if (tab) {tab.location.href = url;notice('返信済みとして記録してXを開きました。投稿はXで確定してください。');} else notice('返信済みとして記録しました。ポップアップを許可するか、返信をコピーしてXに貼り付けてください。',true);
   } catch(e) { notice(e.message,true); }
 });
 function renderHistory() {
@@ -180,9 +188,13 @@ function renderHistory() {
   if (!records.length) { const empty = el('div',undefined,'panel empty-state'); empty.append(el('h3','まだ、ここにはことばがありません。'),el('p','返信を保存すると、元のポストと一緒に並びます。')); container.append(empty); }
   for (const r of records) {
     const card = el('article',undefined,'panel history-card'); const heading = el('div',undefined,'panel-heading');
-    const a = el('a','@'+r.post.author); a.href = r.post.url; a.target = '_blank'; a.rel='noopener noreferrer'; heading.append(a,el('span',`${r.status === 'sent' ? '投稿済み' : '下書き'} · ${new Date(r.updatedAt).toLocaleString('ja-JP')}`,'subtle'));
-    const pair = el('div',undefined,'history-pair'); const left = el('div'); const right = el('div'); left.append(el('span','元のポスト','subtle'),el('p',r.post.text)); right.append(el('span','自分の返信','subtle'),el('p',r.reply)); pair.append(left,right);
-    const buttons = el('div',undefined,'actions'); const edit = el('button','開いて編集','secondary'); edit.addEventListener('click',() => { if (!busy) fillPost(r.post,r.reply,r.analysis); else notice('生成完了後に開いてください。',true); });
+    const a = el('a','@'+r.post.author); a.href = r.post.url; a.target = '_blank'; a.rel='noopener noreferrer'; heading.append(a,el('span',`${kindLabel(r)} · ${r.status === 'sent' ? '返信済み' : '下書き'} · ${new Date(r.updatedAt).toLocaleString('ja-JP')}`,'subtle'));
+    const pair = el('div',undefined,'history-pair'); const left = el('div'); const right = el('div'); left.append(el('span','元のポスト','subtle'),el('p',r.post.text)); right.append(el('span','自分の'+kindLabel(r),'subtle'),el('p',r.reply)); pair.append(left,right);
+    const buttons = el('div',undefined,'actions'); const edit = el('button','開いて編集','secondary'); edit.addEventListener('click',() => {
+      if(busy){notice('生成完了後に開いてください。',true);return;}
+      if(r.kind==='air-reply'){fillPost(r.post);if(r.analysis)renderAirResult(r.analysis);$('air-panel').hidden=false;$('air-text').value=r.reply;}
+      else fillPost(r.post,r.reply,r.analysis);
+    });
     const remove = el('button','削除','text-button'); remove.addEventListener('click',async () => { if (!confirm('この元投稿と返信の記録を削除しますか？')) return; try {await commit(latest => {latest.records = latest.records.filter(x => x.id !== r.id);}); renderContext(); notice('記録を削除しました。');} catch(e) {notice(e.message,true);} }); buttons.append(edit,remove); card.append(heading,pair,buttons); container.append(card);
   }
 }

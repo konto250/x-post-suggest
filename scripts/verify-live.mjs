@@ -34,12 +34,13 @@ try {
   if(process.argv.includes('--generate')) {
     const airReply=process.argv.includes('--air-reply');
     const input={mode:airReply?'air-reply':'reply',post:{url:'https://x.com/test_user/status/1',text:airReply?'業務効率化のため、進捗確認の会議を毎日3回に増やします。':'動作確認用の架空ポストです。散歩で気分転換できました。'},context:[]};
+    if(process.argv.includes('--air-context'))input.context=[{kind:'air-reply',post:'会議を減らすための会議を増やします。',reply:'減らすための予定が着々と増えている。'}];
     const local=new Map();const storage={getItem:k=>local.get(k)||null,setItem:(k,v)=>local.set(k,v)};let calls=0;
     const key=await analysisKey(input,settings);
     const generate=async()=>{calls++;const response=await post('/api/analyze',input,{Cookie:cookie});check(response.status===200,'公開環境での返信生成');return response.json();};
     const first=await cachedAnalysis({storage,key,generate});check(first.data.suggestions?.length===3,'返信案3件');check(first.data.model==='gpt-6-luna','節約モデル');check(first.data.usage?.outputTokens<=1200,'出力上限');
     if(airReply) {
-      check(first.data.mode==='air-reply' && first.data.contextCount===0,'エアリプの生成モード');
+      check(first.data.mode==='air-reply' && first.data.contextCount===input.context.length,'エアリプの生成モードと参照件数');
       check(first.data.suggestions.every(s=>!/@|https?:\/\//i.test(s.text)),'メンション・URLなし');
       console.log('エアリプ生成例: '+JSON.stringify(first.data.suggestions));
     }

@@ -32,6 +32,7 @@ try {
   }),'localhost');
   browser=await chromium.launch({channel:'chrome',headless:true});
   const context=await browser.newContext({acceptDownloads:true});
+  await context.route('https://x.com/**',route=>route.fulfill({contentType:'text/html',body:'<p>投稿画面への遷移だけを検証</p>'}));
   if(baseline) {
     const source=(await readFile(new URL('../auth/login.js',import.meta.url),'utf8')).replaceAll('openApp();','location.replace(destination());');
     await context.route('**/auth/login.js',route=>route.fulfill({contentType:'text/javascript',body:source}));
@@ -66,18 +67,21 @@ try {
     await imported.locator('#reply').fill('検証用の下書きです。');
     await imported.locator('#save-draft').click();
     await imported.getByText('下書きを保存しました。',{exact:true}).waitFor();
-    await imported.locator('#mark-sent').click();
-    await imported.getByText('投稿済みとして記録しました。次回、この相手への返信に活用します。',{exact:true}).waitFor();
-    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*投稿済み返信0件/);
-    assert.match(await imported.locator('#context-list').textContent(),/このポストへの保存済み返信（投稿済み）.*検証用の下書きです。.*参照対象には含めません/s);
+    assert.equal(await imported.locator('#mark-sent, #mark-air-sent').count(),0);
+    const replyPopupPromise=context.waitForEvent('page');await imported.locator('#open-x').click();const replyPopup=await replyPopupPromise;
+    await replyPopup.waitForURL('https://x.com/intent/tweet?**');assert.equal(new URL(replyPopup.url()).searchParams.get('in_reply_to'),'123');await replyPopup.close();
+    await imported.getByText('返信済みとして記録してXを開きました。投稿はXで確定してください。',{exact:true}).waitFor();
+    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*返信済みの記録0件/);
+    assert.match(await imported.locator('#context-list').textContent(),/このポストへの保存済み返信（返信済み）.*検証用の下書きです。.*参照対象には含めません/s);
     await imported.locator('#post-url').fill('https://x.com/test_user/status/124');
-    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*投稿済み返信1件/);
+    assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*返信済みの記録1件/);
     await imported.locator('#post-url').fill(post.url);
     if(process.argv.includes('--air-ui')) {
       const counts={'reply':0,'air-reply':0};
       await context.route('**/api/analyze',async route=>{
         const input=route.request().postDataJSON();counts[input.mode]++;
-        if(input.mode==='air-reply')assert.deepEqual(input.context,[]);
+        if(input.post.id==='124')assert.deepEqual(input.context.map(c=>c.kind).sort(),['air-reply','reply']);
+        else assert.deepEqual(input.context,[]);
         await route.fulfill({contentType:'application/json',body:JSON.stringify({mode:input.mode,summary:'検証用の要約',caution:'',links:[],contextCount:0,inputNotice:'検証用',suggestions:[1,2,3].map(n=>({label:`案${n}`,text:input.mode==='air-reply'?`会議を減らす会議が増える、見事な効率化ですね。${n}`:`通常の返信案${n}`}))})});
       });
       await imported.locator('#generate').click();await imported.getByText('通常の返信案1',{exact:true}).waitFor();
@@ -94,10 +98,26 @@ try {
       assert.deepEqual(counts,{'reply':1,'air-reply':1});
       imported.once('dialog',dialog=>dialog.accept());await imported.locator('#regenerate-air').click();await imported.getByText('3つのエアリプ案を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。',{exact:true}).waitFor();
       assert.equal(counts['air-reply'],2);
+      await imported.locator('#air-text').fill('保存用のエアリプです。');
+      const savedAirPopupPromise=context.waitForEvent('page');await imported.locator('#open-air').click();const savedAirPopup=await savedAirPopupPromise;
+      await savedAirPopup.waitForURL('https://x.com/intent/tweet?**');await savedAirPopup.close();
+      await imported.getByText('エアリプを返信済みとして記録してXを開きました。投稿はXで確定してください。',{exact:true}).waitFor();
+      assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は2件.*返信済みの記録0件/);
+      await imported.locator('[data-view="history"]').click();
+      assert.equal(await imported.locator('.history-card').count(),2);
+      const airCard=imported.locator('.history-card').filter({hasText:'自分のエアリプ'});
+      await airCard.getByText('開いて編集',{exact:true}).click();
+      assert.equal(await imported.locator('#air-text').inputValue(),'保存用のエアリプです。');
+      await imported.locator('#post-url').fill('https://x.com/test_user/status/124');
+      assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は2件.*返信済みの記録2件/);
+      await imported.locator('#self-debate').click();await imported.locator('#air-panel').waitFor({state:'visible'});
+      await imported.locator('#generate').click();await imported.getByText('3つの返信案を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。',{exact:true}).waitFor();
+      assert.deepEqual(counts,{'reply':2,'air-reply':3});
       await mkdir('.test-artifacts',{recursive:true});await imported.locator('#air-panel').screenshot({path:'.test-artifacts/air-reply.png'});
       await imported.locator('#post-text').fill(post.text+'変更');assert.equal(await imported.locator('#air-panel').isVisible(),false);
       await imported.locator('#post-text').fill(post.text);
-      console.log('エアリプUI確認成功: 通常返信との分離・編集内容をXへ渡す・返信先なし・再利用・明示的再生成・元投稿変更時のリセット');
+      await imported.locator('#post-url').fill(post.url);
+      console.log('エアリプUI確認成功: 返信と別保存・履歴から編集・両生成モードへ文脈送信・返信先なし・再利用');
     }
     await imported.locator('[data-view="settings"]').click();
     const downloadPromise=imported.waitForEvent('download');
@@ -105,7 +125,10 @@ try {
     const download=await downloadPromise;
     assert.match(download.suggestedFilename(),/^x-replies-\d{4}-\d{2}-\d{2}\.json$/);
     const backup=JSON.parse(await readFile(await download.path(),'utf8'));
-    assert.equal(backup.records.length,1);assert.equal(backup.records[0].post.text,post.text);
+    const expectedRecords=process.argv.includes('--air-ui')?2:1;
+    assert.equal(backup.records.length,expectedRecords);assert.equal(backup.records[0].post.text,post.text);
+    if(expectedRecords===2)assert.deepEqual(backup.records.map(r=>r.kind).sort(),['air-reply','reply']);
+    assert.ok(backup.records.every(r=>r.status==='sent'));
     assert.match(await imported.locator('#notice').textContent(),/ダウンロード.*フォルダー/);
     await mkdir('.test-artifacts',{recursive:true});
     await imported.screenshot({path:'.test-artifacts/backup-settings.png',fullPage:true});
@@ -113,7 +136,7 @@ try {
     await imported.locator('#logout').click();
     await Promise.all([imported.locator('#login-form').waitFor({state:'visible'}),other.locator('#login-form').waitFor({state:'visible'})]);
     const stored=await imported.evaluate(()=>localStorage.getItem('x-post-suggest:v1'));
-    assert.equal(JSON.parse(stored).records.length,1);
+    assert.equal(JSON.parse(stored).records.length,expectedRecords);
     console.log('実ブラウザー確認成功: 外部遷移後の再入力なし・本文/URL保持・同一ポストの履歴表示と別ポストの参照・JSONダウンロード・別タブログアウト・履歴保持');
   }
   await Promise.all(responses);

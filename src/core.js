@@ -2,6 +2,7 @@ import { LIMITS } from './analysis-config.js';
 export const STORAGE_KEY = 'x-post-suggest:v1';
 export const defaults = { ownHandle: '', perUser: 20, total: 500, context: LIMITS.context, tone: '短くカジュアル', instruction: '' };
 export const handle = value => String(value || '').trim().replace(/^@/, '').toLowerCase();
+export const recordId = (post,kind='reply') => kind==='air-reply' ? `air:${post.id}` : post.id;
 export function safeUrl(value) {
   try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : ''; } catch { return ''; }
 }
@@ -27,7 +28,7 @@ export function prune(records, settings) {
   }).slice(0, settings.total);
 }
 export function contextFor(records, post, settings) {
-  return records.filter(r => handle(r.post.author) === post.author && r.post.id !== post.id && r.status === 'sent' && r.reply.trim()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, Math.min(settings.context,LIMITS.context)).map(r => ({ post: r.post.text.slice(0, LIMITS.contextPost), reply: r.reply.slice(0, LIMITS.contextReply) }));
+  return records.filter(r => handle(r.post.author) === post.author && r.post.id !== post.id && r.status === 'sent' && r.reply.trim()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, Math.min(settings.context,LIMITS.context)).map(r => ({ kind:r.kind==='air-reply'?'air-reply':'reply', post: r.post.text.slice(0, LIMITS.contextPost), reply: r.reply.slice(0, LIMITS.contextReply) }));
 }
 export function loadState(storage) {
   const raw = storage.getItem(STORAGE_KEY);
@@ -39,7 +40,9 @@ export function loadState(storage) {
     if (!r.id || !['draft','sent'].includes(r.status) || typeof r.updatedAt !== 'string' || !Number.isFinite(Date.parse(r.updatedAt)) || typeof r.reply !== 'string') throw new Error('履歴データが破損しています。');
     const analysis = r.analysis;
     if (analysis && (!Array.isArray(analysis.suggestions) || analysis.suggestions.some(s => !s || typeof s.text !== 'string' || typeof s.label !== 'string') || (analysis.links && (!Array.isArray(analysis.links) || analysis.links.some(l => !l || typeof l.url !== 'string'))))) throw new Error('保存された返信案の形式が不正です。');
-    return { id: normalizePost(r.post).id, updatedAt: r.updatedAt, status:r.status, analysis: analysis || null, post: normalizePost(r.post), reply: r.reply.slice(0, 10000) };
+    if(r.kind!==undefined && !['reply','air-reply'].includes(r.kind))throw new Error('履歴の種類が不明です。');
+    const kind=r.kind || 'reply',post=normalizePost(r.post);
+    return { id:recordId(post,kind), kind, updatedAt: r.updatedAt, status:r.status, analysis: analysis || null, post, reply: r.reply.slice(0, 10000) };
   });
   return {settings, records: prune(records, settings)};
 }

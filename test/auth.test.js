@@ -52,7 +52,7 @@ test('誤パスワードと不正Origin・不正Hostを拒否する',async t=>{
 test('認証後の画面とAPI、未認証へのキャッシュ分離、ログアウト',async t=>{
   const app=await setup(t);const cookie=await app.login();
   const page=await app.req('/',{headers:{Cookie:cookie}});assertPrivate(page);assert.match(await page.text(),/post-form/);
-  const config=await app.req('/api/config',{headers:{Cookie:cookie}});assert.equal(config.status,200);assertPrivate(config);assert.deepEqual(await config.json(),{hasKey:true,model:'test-model',analysisVersion:'economy-v3-air-reply'});
+  const config=await app.req('/api/config',{headers:{Cookie:cookie}});assert.equal(config.status,200);assertPrivate(config);assert.deepEqual(await config.json(),{hasKey:true,model:'test-model',analysisVersion:'economy-v4-air-history'});
   assert.equal((await app.post('/api/analyze',{}, {Cookie:cookie,'X-OpenAI-Key':'ignored-browser-key'})).status,200);
   assert.equal((await app.post('/api/analyze',{}, {Cookie:cookie,Origin:'https://evil.example'})).status,403);
   const anonymous=await app.req('/');assertPrivate(anonymous);assert.doesNotMatch(await anonymous.text(),/post-form/);
