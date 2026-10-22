@@ -49,14 +49,16 @@ function renderContext() {
   } catch { $('context-summary').textContent = 'ポストURLと本文を入力すると、相手への返信履歴が表示されます。'; }
 }
 const emptySuggestions = $('suggestions').cloneNode(true);
-function clearResult() { result = null; $('regenerate').hidden=true; $('suggestions').replaceChildren(...emptySuggestions.cloneNode(true).childNodes); }
+function clearAir() { $('air-panel').hidden=true; $('air-suggestions').replaceChildren(); $('air-text').value=''; }
+function clearResult() { result = null; $('regenerate').hidden=true; $('suggestions').replaceChildren(...emptySuggestions.cloneNode(true).childNodes); clearAir(); }
 for (const id of ['post-url','post-text','post-links']) $(id).addEventListener('input',() => { clearResult(); renderContext(); });
 function fillPost(post, reply = '', analysis = null) {
+  clearAir();
   $('post-url').value = post.url; $('post-text').value = post.text; $('post-links').value = post.links.join('\n'); $('reply').value = reply; updateChars(); result = analysis; analysis ? renderResult(analysis) : clearResult(); renderContext(); go('compose');
 }
 $('new-post').addEventListener('click',() => {
   if (busy) return;
-  if ($('reply').value && !confirm('現在の編集内容を閉じて、新しい返信を作成しますか？ 保存済みの履歴は残ります。')) return;
+  if (($('reply').value || $('air-text').value) && !confirm('現在の編集内容を閉じて、新しい返信を作成しますか？ 保存済みの履歴は残ります。')) return;
   $('post-form').reset(); $('reply').value = ''; $('tone').value = defaults.tone; clearResult(); renderContext(); updateChars();
 });
 $('bookmark').href = bookmarklet(location.origin);
@@ -96,35 +98,58 @@ function renderResult(data) {
   if(data.inputNotice)container.append(el('p',data.inputNotice,'fine-print'));
   if(data.generatedAt)container.append(el('p',`生成日時：${new Date(data.generatedAt).toLocaleString('ja-JP')}。リンク先はこの時点の取得内容です。`,'fine-print'));
 }
+function renderAirResult(data) {
+  const container=$('air-suggestions');container.replaceChildren(el('p',data.summary,'summary'));
+  if(data.caution)container.append(el('p',data.caution,'warning'));
+  for(const suggestion of data.suggestions) {
+    const card=el('div',undefined,'suggestion');const use=el('button','この案を使う','text-button');use.type='button';
+    use.addEventListener('click',()=>{if(busy)return;$('air-text').value=suggestion.text;$('air-text').focus();});
+    card.append(el('h3',suggestion.label),el('p',suggestion.text),use);container.append(card);
+  }
+  container.append(el('p',data.inputNotice,'fine-print'));
+  if(data.generatedAt)container.append(el('p',`生成日時：${new Date(data.generatedAt).toLocaleString('ja-JP')}`,'fine-print'));
+  $('air-text').value=data.suggestions[0].text;$('air-panel').hidden=false;
+  $('air-panel').scrollIntoView({block:'nearest'});
+}
 function setBusy(value) {
   busy = value;
-  for (const id of ['post-url','post-text','post-links','tone','generate','regenerate','new-post','save-draft','open-x','mark-sent']) $(id).disabled = value;
+  for (const id of ['post-url','post-text','post-links','tone','generate','regenerate','self-debate','regenerate-air','air-text','open-air','copy-air','new-post','save-draft','open-x','mark-sent']) $(id).disabled = value;
   $('generate').textContent = value ? 'リンク先を確認して返信案を生成中…' : '✧ 返信案をつくる';
   $('suggestions').setAttribute('aria-busy',String(value));
 }
 $('post-form').addEventListener('submit',async e => {
   e.preventDefault(); if (busy) return;
   try {
-    const force=e.submitter?.id==='regenerate';
+    const mode=['self-debate','regenerate-air'].includes(e.submitter?.id)?'air-reply':'reply';
+    const force=['regenerate','regenerate-air'].includes(e.submitter?.id);
+    const label=mode==='air-reply'?'エアリプ案':'返信案';
     const post = currentPost(); state = loadState(localStorage); const settings = {...state.settings,tone:$('tone').value};
-    setBusy(true); notice(force ? '新しい返信案を生成します（API利用料が発生します）。' : '保存済みの返信案を確認しています。');
+    if(mode==='air-reply' && $('air-text').value && !confirm('編集中のエアリプを生成結果で置き換えますか？'))return;
+    setBusy(true); notice(force ? `新しい${label}を生成します（API利用料が発生します）。` : `保存済みの${label}を確認しています。`);
     const configResponse=await apiFetch('/api/config');
     const config=await configResponse.json();if(!configResponse.ok)throw new Error(config.error || '設定を確認できません。');
-    const input={post,settings:{ownHandle:settings.ownHandle,tone:settings.tone,instruction:settings.instruction,context:settings.context},context:contextFor(state.records,post,settings)};
+    const input={mode,post,settings:{ownHandle:settings.ownHandle,tone:mode==='air-reply'?'短くカジュアル':settings.tone,instruction:settings.instruction,context:settings.context},context:mode==='air-reply'?[]:contextFor(state.records,post,settings)};
     const key=await analysisKey(input,config);
     const cached=await navigator.locks.request('x-post-suggest:generate:'+key,()=>cachedAnalysis({storage:localStorage,key,force,generate:async()=>{
-      notice('リンク先と過去の返信を確認し、返信案を生成しています。');
+      notice(mode==='air-reply'?'元ポストとリンク先を確認し、冷笑系エアリプ案を生成しています。':'リンク先と過去の返信を確認し、返信案を生成しています。');
       const response=await apiFetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal:AbortSignal.timeout(150000)});
       const data=await response.json();if(!response.ok)throw new Error(data.error || '生成に失敗しました。');return data;
     }}));
-    result=cached.data;renderResult(cached.data);
-    notice(cached.reused ? '保存済みの返信案を再利用しました。追加のOpenAI API利用料はかかりません。' : cached.saved ? '3つの返信案を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。' : '返信案を作成しましたが、ブラウザーに再利用用の保存ができませんでした。再実行にはAPI利用料がかかります。');
+    if(mode==='air-reply')renderAirResult(cached.data);else {result=cached.data;renderResult(cached.data);}
+    notice(cached.reused ? `保存済みの${label}を再利用しました。追加のOpenAI API利用料はかかりません。` : cached.saved ? `3つの${label}を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。` : `${label}を作成しましたが、ブラウザーに再利用用の保存ができませんでした。再実行にはAPI利用料がかかります。`);
   } catch(e) { notice(e.name === 'TimeoutError' ? '生成がタイムアウトしました。再実行してください。' : e.message,true); }
   finally {setBusy(false);}
 });
 function updateChars() { $('char-count').textContent = `${[...$('reply').value].length}文字（Xでのカウントとは異なる場合があります）`; }
 $('reply').addEventListener('input',updateChars);
 $('copy-reply').addEventListener('click',() => { if ($('reply').value.trim()) copy($('reply').value,'返信をコピーしました。'); else notice('返信を入力してください。',true); });
+$('copy-air').addEventListener('click',()=>{if($('air-text').value.trim())copy($('air-text').value,'エアリプをコピーしました。');else notice('投稿するコメントを入力してください。',true);});
+$('open-air').addEventListener('click',()=>{
+  if(busy)return;
+  const text=$('air-text').value.trim();if(!text){notice('投稿するコメントを入力してください。',true);return;}
+  window.open('https://x.com/intent/tweet?'+new URLSearchParams({text}),'_blank','noopener,noreferrer');
+  notice('Xの投稿画面を開きました。内容を確認して投稿してください。');
+});
 async function saveReply(status) {
   const post = currentPost(); const reply = $('reply').value.trim();
   if (!reply) throw new Error('保存する返信を入力してください。');

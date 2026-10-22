@@ -15,6 +15,7 @@ test('本文・文体・指示・履歴・モデル・仕様変更は別の結�
   const config={model:'gpt-6-luna',analysisVersion:'economy-v1'};
   const input={post:{text:'原文'},settings:{tone:'丁寧',instruction:'短く'},context:[]};
   const key=await analysisKey(input,config);
+  assert.notEqual(await analysisKey({...input,mode:'air-reply'},config),key);
   for(const changed of [{...input,post:{text:'別の原文'}},{...input,settings:{...input.settings,tone:'カジュアル'}},{...input,settings:{...input.settings,instruction:'質問する'}},{...input,context:[{reply:'前の返信'}]}])assert.notEqual(await analysisKey(changed,config),key);
   assert.notEqual(await analysisKey(input,{...config,model:'gpt-5-mini'}),key);
   assert.notEqual(await analysisKey(input,{...config,analysisVersion:'next'}),key);

@@ -73,6 +73,32 @@ try {
     await imported.locator('#post-url').fill('https://x.com/test_user/status/124');
     assert.match(await imported.locator('#context-summary').textContent(),/保存履歴は1件.*投稿済み返信1件/);
     await imported.locator('#post-url').fill(post.url);
+    if(process.argv.includes('--air-ui')) {
+      const counts={'reply':0,'air-reply':0};
+      await context.route('**/api/analyze',async route=>{
+        const input=route.request().postDataJSON();counts[input.mode]++;
+        if(input.mode==='air-reply')assert.deepEqual(input.context,[]);
+        await route.fulfill({contentType:'application/json',body:JSON.stringify({mode:input.mode,summary:'検証用の要約',caution:'',links:[],contextCount:0,inputNotice:'検証用',suggestions:[1,2,3].map(n=>({label:`案${n}`,text:input.mode==='air-reply'?`会議を減らす会議が増える、見事な効率化ですね。${n}`:`通常の返信案${n}`}))})});
+      });
+      await imported.locator('#generate').click();await imported.getByText('通常の返信案1',{exact:true}).waitFor();
+      const normalText=await imported.locator('#reply').inputValue();
+      await imported.locator('#self-debate').click();await imported.locator('#air-panel').waitFor({state:'visible'});
+      assert.equal(await imported.locator('#reply').inputValue(),normalText);
+      assert.match(await imported.locator('#suggestions').textContent(),/通常の返信案1/);
+      await imported.locator('#air-text').fill('会議を減らす会議、まず増やします。');
+      await context.route('https://x.com/**',route=>route.fulfill({contentType:'text/html',body:'<p>投稿画面への遷移だけを検証</p>'}));
+      const popupPromise=context.waitForEvent('page');await imported.locator('#open-air').click();const popup=await popupPromise;
+      await popup.waitForURL('https://x.com/intent/tweet?**');
+      const opened=new URL(popup.url());assert.deepEqual([...opened.searchParams.keys()],['text']);assert.equal(opened.searchParams.get('text'),'会議を減らす会議、まず増やします。');await popup.close();
+      imported.once('dialog',dialog=>dialog.accept());await imported.locator('#self-debate').click();await imported.getByText('保存済みのエアリプ案を再利用しました。追加のOpenAI API利用料はかかりません。',{exact:true}).waitFor();
+      assert.deepEqual(counts,{'reply':1,'air-reply':1});
+      imported.once('dialog',dialog=>dialog.accept());await imported.locator('#regenerate-air').click();await imported.getByText('3つのエアリプ案を作成しました。同じ条件なら24時間、追加課金なしで再利用できます。',{exact:true}).waitFor();
+      assert.equal(counts['air-reply'],2);
+      await mkdir('.test-artifacts',{recursive:true});await imported.locator('#air-panel').screenshot({path:'.test-artifacts/air-reply.png'});
+      await imported.locator('#post-text').fill(post.text+'変更');assert.equal(await imported.locator('#air-panel').isVisible(),false);
+      await imported.locator('#post-text').fill(post.text);
+      console.log('エアリプUI確認成功: 通常返信との分離・編集内容をXへ渡す・返信先なし・再利用・明示的再生成・元投稿変更時のリセット');
+    }
     await imported.locator('[data-view="settings"]').click();
     const downloadPromise=imported.waitForEvent('download');
     await imported.locator('#export-settings').click();

@@ -32,11 +32,17 @@ try {
   check((await post('/api/auth/logout',{}, {Cookie:cookie,Origin:'https://example.com'})).status===403,'ログアウトOrigin検証');
   for(let i=0;i<3;i++) {const response=await request('/');privateResponse(response);check(!(await response.text()).includes('post-form'),'認証直後の匿名応答分離');check((await request('/api/config')).status===401,'匿名API分離');}
   if(process.argv.includes('--generate')) {
-    const input={post:{url:'https://x.com/test_user/status/1',text:'動作確認用の架空ポストです。散歩で気分転換できました。'},context:[]};
+    const airReply=process.argv.includes('--air-reply');
+    const input={mode:airReply?'air-reply':'reply',post:{url:'https://x.com/test_user/status/1',text:airReply?'業務効率化のため、進捗確認の会議を毎日3回に増やします。':'動作確認用の架空ポストです。散歩で気分転換できました。'},context:[]};
     const local=new Map();const storage={getItem:k=>local.get(k)||null,setItem:(k,v)=>local.set(k,v)};let calls=0;
     const key=await analysisKey(input,settings);
     const generate=async()=>{calls++;const response=await post('/api/analyze',input,{Cookie:cookie});check(response.status===200,'公開環境での返信生成');return response.json();};
     const first=await cachedAnalysis({storage,key,generate});check(first.data.suggestions?.length===3,'返信案3件');check(first.data.model==='gpt-6-luna','節約モデル');check(first.data.usage?.outputTokens<=1200,'出力上限');
+    if(airReply) {
+      check(first.data.mode==='air-reply' && first.data.contextCount===0,'エアリプの生成モード');
+      check(first.data.suggestions.every(s=>!/@|https?:\/\//i.test(s.text)),'メンション・URLなし');
+      console.log('エアリプ生成例: '+JSON.stringify(first.data.suggestions));
+    }
     const second=await cachedAnalysis({storage,key,generate});check(second.reused && calls===1,'再利用時のOpenAI API呼び出しなし');
     console.log('公開環境の実API生成: '+JSON.stringify({model:first.data.model,suggestions:first.data.suggestions.length,usage:first.data.usage,reused:second.reused,apiCalls:calls}));
   }
